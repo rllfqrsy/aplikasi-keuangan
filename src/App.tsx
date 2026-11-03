@@ -12,8 +12,6 @@ import {
   Download,
   FileText,
   LayoutDashboard,
-  LogIn,
-  LogOut,
   Pencil,
   Plus,
   Printer,
@@ -21,43 +19,20 @@ import {
   Settings2,
   ShieldCheck,
   Trash2,
-  Sparkles,
   User as UserIcon,
   Wallet,
   X,
 } from 'lucide-react'
 import {
-  listenToAuthState,
-  deleteUserTransaction,
-  listenToUserTransactions,
-  logOut,
-  logOutLocal,
-  saveUserTransaction,
-  type AuthUserProfile,
   type SyncStatus,
   type TransactionRecord,
 } from './firebase'
-import { firebaseConfigured } from './firebase-config'
-import { AuthModal } from './AuthModal'
 import './App.css'
 
 type TransactionType = TransactionRecord['type']
 type Transaction = TransactionRecord
 
-const initialTransactions: Transaction[] = [
-  { id: 1, title: 'Pembayaran proyek branding', category: 'Proyek', date: '2026-10-18', type: 'income', amount: 8500000, account: 'BCA Operasional' },
-  { id: 2, title: 'Sewa ruang kerja', category: 'Operasional', date: '2026-10-16', type: 'expense', amount: 2400000, account: 'BCA Operasional' },
-  { id: 3, title: 'Retainer klien — Oktober', category: 'Proyek', date: '2026-10-14', type: 'income', amount: 12500000, account: 'BCA Operasional' },
-  { id: 4, title: 'Langganan perangkat lunak', category: 'Tools', date: '2026-10-12', type: 'expense', amount: 685000, account: 'Kartu bisnis' },
-  { id: 5, title: 'Transportasi & meeting', category: 'Perjalanan', date: '2026-10-10', type: 'expense', amount: 420000, account: 'Tunai' },
-  { id: 6, title: 'Uang muka desain kemasan', category: 'Proyek', date: '2026-10-08', type: 'income', amount: 4750000, account: 'BCA Operasional' },
-  { id: 7, title: 'Pembelian perlengkapan kantor', category: 'Operasional', date: '2026-10-05', type: 'expense', amount: 735000, account: 'Kartu bisnis' },
-  { id: 8, title: 'Konsultasi strategi', category: 'Proyek', date: '2026-09-24', type: 'income', amount: 6200000, account: 'BCA Operasional' },
-  { id: 9, title: 'Tagihan internet', category: 'Operasional', date: '2026-09-19', type: 'expense', amount: 580000, account: 'BCA Operasional' },
-  { id: 10, title: 'Workshop tim', category: 'Operasional', date: '2026-08-21', type: 'expense', amount: 1850000, account: 'BCA Operasional' },
-  { id: 11, title: 'Pembuatan website', category: 'Proyek', date: '2026-08-12', type: 'income', amount: 9800000, account: 'BCA Operasional' },
-  { id: 12, title: 'Pembayaran invoice konsultasi', category: 'Proyek', date: '2026-07-27', type: 'income', amount: 7200000, account: 'BCA Operasional' },
-]
+const initialTransactions: Transaction[] = []
 
 const formatCurrency = (amount: number) =>
   new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(
@@ -114,7 +89,10 @@ function App() {
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     try {
       const savedTransactions = localStorage.getItem('catat-rapi-transactions')
-      return savedTransactions ? (JSON.parse(savedTransactions) as Transaction[]) : initialTransactions
+      if (!savedTransactions) return initialTransactions
+      const saved = JSON.parse(savedTransactions) as Transaction[]
+      const containsOnlyDemoData = saved.length === 12 && saved.every((transaction) => Number(transaction.id) >= 1 && Number(transaction.id) <= 12)
+      return containsOnlyDemoData ? [] : saved
     } catch {
       return initialTransactions
     }
@@ -126,14 +104,9 @@ function App() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null)
   const [transactionType, setTransactionType] = useState<TransactionType>('expense')
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>(firebaseConfigured ? 'connecting' : 'local')
-  const [pendingTransactions, setPendingTransactions] = useState<Transaction[]>([])
+  const syncStatus: SyncStatus = 'local'
 
   // Auth State
-  const [authUser, setAuthUser] = useState<AuthUserProfile | null>(null)
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
-  const [authModalMode, setAuthModalMode] = useState<'login' | 'register'>('login')
-  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [isPeriodMenuOpen, setIsPeriodMenuOpen] = useState(false)
 
   // Selected period filter (default: 'all')
@@ -146,7 +119,7 @@ function App() {
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
       if (topbarUserMenuRef.current && !topbarUserMenuRef.current.contains(e.target as Node)) {
-        setIsUserMenuOpen(false)
+        return
       }
       if (periodMenuRef.current && !periodMenuRef.current.contains(e.target as Node)) {
         setIsPeriodMenuOpen(false)
@@ -161,62 +134,6 @@ function App() {
     localStorage.setItem('catat-rapi-transactions', JSON.stringify(transactions))
   }, [transactions])
 
-  // Listen to Firebase Auth state
-  useEffect(() => {
-    if (!firebaseConfigured) return
-
-    const unsubscribeAuth = listenToAuthState({
-      onUser: (user) => {
-        setAuthUser(user)
-      },
-    })
-
-    return () => {
-      unsubscribeAuth()
-    }
-  }, [])
-
-  // Listen to User Transactions when authUser changes
-  useEffect(() => {
-    if (!firebaseConfigured || !authUser?.uid) return
-
-    let isMounted = true
-    const unsubscribeTransactions = listenToUserTransactions(authUser.uid, {
-      onTransactions: (userTransactions) => {
-        if (!isMounted) return
-        setTransactions(userTransactions)
-      },
-      onStatus: (status) => {
-        if (!isMounted) return
-        setSyncStatus(status)
-      },
-    })
-
-    return () => {
-      isMounted = false
-      unsubscribeTransactions()
-    }
-  }, [authUser?.uid])
-
-  // Sync any pending transactions when authenticated
-  useEffect(() => {
-    if (!authUser?.uid || pendingTransactions.length === 0) return
-
-    let stopped = false
-    void Promise.all(pendingTransactions.map((tx) => saveUserTransaction(authUser.uid, tx)))
-      .then(() => {
-        if (stopped) return
-        setPendingTransactions([])
-        setSyncStatus('synced')
-      })
-      .catch(() => {
-        if (!stopped) setSyncStatus('error')
-      })
-
-    return () => {
-      stopped = true
-    }
-  }, [authUser?.uid, pendingTransactions])
 
   // Calculate available months dynamically from transactions
   const availableMonths = useMemo(() => {
@@ -336,19 +253,6 @@ function App() {
     1
   )
 
-  const openAuthModal = (mode: 'login' | 'register') => {
-    setAuthModalMode(mode)
-    setIsAuthModalOpen(true)
-    setIsUserMenuOpen(false)
-  }
-
-  const handleLogout = async () => {
-    setIsUserMenuOpen(false)
-    if (firebaseConfigured) await logOut()
-    else await logOutLocal()
-    setAuthUser(null)
-  }
-
   // Handle adding a new transaction with robust number parsing
   const addTransaction = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -383,18 +287,6 @@ function App() {
       setSelectedPeriod('all')
     }
 
-    // Save to Firestore if authenticated
-    if (authUser?.uid) {
-      try {
-        await saveUserTransaction(authUser.uid, newTransaction)
-        setSyncStatus('synced')
-      } catch {
-        setSyncStatus('error')
-      }
-    } else if (firebaseConfigured) {
-      setPendingTransactions((current) => [...current, newTransaction])
-    }
-
     setIsModalOpen(false)
     setEditingTransaction(null)
     setActiveNav('Transaksi')
@@ -415,14 +307,6 @@ function App() {
   const deleteTransaction = async (transaction: Transaction) => {
     if (!window.confirm(`Hapus transaksi "${transaction.title}"?`)) return
     setTransactions((current) => current.filter((item) => item.id !== transaction.id))
-    if (authUser?.uid && firebaseConfigured) {
-      try {
-        await deleteUserTransaction(authUser.uid, transaction.id)
-        setSyncStatus('synced')
-      } catch {
-        setSyncStatus('error')
-      }
-    }
   }
 
   const exportTransactions = () => {
@@ -452,8 +336,8 @@ function App() {
     { label: 'Laporan', icon: ChartNoAxesCombined },
   ]
 
-  const userName = authUser?.displayName || (authUser?.isAnonymous ? 'Pengguna Tamu' : 'Pemilik Usaha')
-  const userInitial = (userName.charAt(0) || 'U').toUpperCase()
+  const userName = 'Pemilik Usaha'
+  const userInitial = 'U'
 
   return (
     <div className="app-shell">
@@ -472,8 +356,8 @@ function App() {
         <div className="workspace-switcher">
           <span className="workspace-avatar">{userInitial}</span>
           <span className="workspace-copy">
-            <strong>{authUser?.displayName || 'Karsa Studio'}</strong>
-            <small>{authUser ? 'Akun Bisnis Aktif' : 'Workspace Bisnis'}</small>
+            <strong>Karsa Studio</strong>
+            <small>Workspace Bisnis</small>
           </span>
           <ChevronDown size={15} />
         </div>
@@ -513,67 +397,10 @@ function App() {
             <span>Pengaturan</span>
           </button>
 
-          {/* User profile row in sidebar */}
-          {authUser ? (
-            <div style={{ position: 'relative' }}>
-              <button
-                className="profile-row"
-                onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                aria-label="Menu akun pengguna"
-                type="button"
-              >
-                <span className="profile-avatar">
-                  {authUser.photoURL ? (
-                    <img src={authUser.photoURL} alt={userName} className="avatar-img" />
-                  ) : (
-                    userInitial
-                  )}
-                </span>
-                <span className="profile-copy">
-                  <strong>{userName}</strong>
-                  <small>{authUser.email || (authUser.isAnonymous ? 'Akun Tamu' : 'Tersambung')}</small>
-                </span>
-                <span className="profile-dots">···</span>
-              </button>
-
-              {isUserMenuOpen && (
-                <div className="user-menu-popover sidebar-user-popover">
-                  <div className="user-menu-header">
-                    <span className="user-menu-name">{userName}</span>
-                    <span className="user-menu-email">{authUser.email || 'Mode Tamu / Offline'}</span>
-                    <span className={`user-menu-badge ${authUser.isAnonymous ? 'guest' : ''}`}>
-                      <i className="badge-dot" />
-                      {authUser.isAnonymous ? 'Tamu Firebase' : 'Akun Terhubung'}
-                    </span>
-                  </div>
-                  <button
-                    className="user-menu-btn"
-                    onClick={() => {
-                      setActiveNav('Pengaturan')
-                      setIsUserMenuOpen(false)
-                    }}
-                  >
-                    <Settings2 size={14} />
-                    <span>Pengaturan Akun</span>
-                  </button>
-                  <button className="user-menu-btn logout-btn" onClick={handleLogout}>
-                    <LogOut size={14} />
-                    <span>Keluar Akun</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <button
-              className="sidebar-auth-cta"
-              onClick={() => openAuthModal('login')}
-              type="button"
-            >
-              <LogIn size={15} />
-              <span>Masuk / Daftar Akun</span>
-            </button>
-          )}
-        </div>
+          <div className="local-profile-row">
+            <span className="profile-avatar">K</span>
+            <span className="profile-copy"><strong>Karsa Studio</strong><small>Catatan tersimpan di browser</small></span>
+          </div>        </div>
       </aside>
 
       {/* Main Content Area */}
@@ -638,94 +465,10 @@ function App() {
               )}
             </div>
 
-            {/* Topbar User Action */}
-            {authUser ? (
-              <div className="topbar-profile-wrap" ref={topbarUserMenuRef}>
-                <button
-                  className="avatar-mini"
-                  onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                  aria-label="Profil Akun"
-                  type="button"
-                >
-                  {authUser.photoURL ? (
-                    <img src={authUser.photoURL} alt={userName} className="avatar-img" />
-                  ) : (
-                    userInitial
-                  )}
-                </button>
-
-                {isUserMenuOpen && (
-                  <div className="user-menu-popover">
-                    <div className="user-menu-header">
-                      <span className="user-menu-name">{userName}</span>
-                      <span className="user-menu-email">{authUser.email || 'Mode Tamu / Offline'}</span>
-                      <span className={`user-menu-badge ${authUser.isAnonymous ? 'guest' : ''}`}>
-                        <i className="badge-dot" />
-                        {authUser.isAnonymous ? 'Mode Tamu' : 'Tersinkron ke Cloud'}
-                      </span>
-                    </div>
-                    <button
-                      className="user-menu-btn"
-                      onClick={() => {
-                        setActiveNav('Pengaturan')
-                        setIsUserMenuOpen(false)
-                      }}
-                    >
-                      <Settings2 size={14} />
-                      <span>Pengaturan Akun</span>
-                    </button>
-                    <button className="user-menu-btn logout-btn" onClick={handleLogout}>
-                      <LogOut size={14} />
-                      <span>Keluar Akun</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <button
-                className="topbar-login-btn"
-                onClick={() => openAuthModal('login')}
-                type="button"
-              >
-                <LogIn size={14} />
-                <span>Masuk</span>
-              </button>
-            )}
           </div>
         </header>
 
         <div className="page-content">
-          {/* Guest notification banner if not logged in */}
-          {!authUser && activeNav === 'Dashboard' && (
-            <section className="guest-banner" aria-label="Pemberitahuan Akun">
-              <div className="guest-banner-content">
-                <Sparkles size={20} className="guest-banner-icon" />
-                <div>
-                  <strong>Simpan catatan keuangan Anda secara aman di Cloud Firestore</strong>
-                  <p>
-                    Saat ini data disimpan di peramban lokal. Masuk atau daftar akun agar transaksi tersinkronisasi otomatis antar perangkat.
-                  </p>
-                </div>
-              </div>
-              <div className="guest-banner-actions">
-                <button
-                  type="button"
-                  className="banner-login-btn"
-                  onClick={() => openAuthModal('login')}
-                >
-                  Masuk
-                </button>
-                <button
-                  type="button"
-                  className="banner-register-btn"
-                  onClick={() => openAuthModal('register')}
-                >
-                  Daftar Akun Baru
-                </button>
-              </div>
-            </section>
-          )}
-
           {/* Heading */}
           <section className="page-heading">
             <div>
@@ -1093,86 +836,19 @@ function App() {
             </section>
           )}
 
-          {/* Settings Section with User Account Info */}
+          {/* Pengaturan penyimpanan lokal */}
           {activeNav === 'Pengaturan' && (
             <div className="settings-container">
               <section className="settings-card">
                 <div className="settings-card-header">
                   <div className="settings-header-info">
-                    <div className="settings-icon">
-                      <UserIcon size={22} />
-                    </div>
-                    <div>
-                      <h2>Profil & Autentikasi Pengguna</h2>
-                      <p>Kelola sesi akun dan status sinkronisasi cloud Anda.</p>
-                    </div>
+                    <div className="settings-icon"><UserIcon size={22} /></div>
+                    <div><h2>Data & Penyimpanan</h2><p>Transaksi disimpan di browser perangkat ini.</p></div>
                   </div>
-                  <span className={`settings-badge ${!authUser || authUser.isAnonymous ? 'guest' : ''}`}>
-                    <CheckCircle2 size={13} />
-                    {authUser
-                      ? authUser.isAnonymous
-                        ? 'Akun Tamu Firebase'
-                        : 'Akun Cloud Aktif'
-                      : 'Mode Lokal (Offline)'}
-                  </span>
-                </div>
-
-                <div className="settings-details">
-                  <div className="settings-field-box">
-                    <span>Nama Pengguna</span>
-                    <strong>{userName}</strong>
-                  </div>
-                  <div className="settings-field-box">
-                    <span>Alamat Email</span>
-                    <strong>{authUser?.email || 'Belum terhubung ke email'}</strong>
-                  </div>
-                  <div className="settings-field-box">
-                    <span>ID Pengguna (UID)</span>
-                    <strong>{authUser?.uid ? `${authUser.uid.slice(0, 14)}...` : 'Lokal / Browser'}</strong>
-                  </div>
-                  <div className="settings-field-box">
-                    <span>Status Penyimpanan</span>
-                    <strong>
-                      {syncStatus === 'synced'
-                        ? 'Tersinkron di Firestore'
-                        : syncStatus === 'connecting'
-                        ? 'Menghubungkan...'
-                        : syncStatus === 'error'
-                        ? 'Gagal sinkron (Lokal)'
-                        : 'Penyimpanan Lokal'}
-                    </strong>
-                  </div>
-                </div>
-
-                <div className="settings-actions">
-                  {authUser ? (
-                    <>
-                      <button
-                        type="button"
-                        className="settings-btn-outline"
-                        onClick={() => openAuthModal('login')}
-                      >
-                        Ganti Akun
-                      </button>
-                      <button
-                        type="button"
-                        className="settings-btn-danger"
-                        onClick={handleLogout}
-                      >
-                        <LogOut size={14} /> Keluar Akun
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      className="settings-btn-primary"
-                      onClick={() => openAuthModal('login')}
-                    >
-                      <LogIn size={15} /> Masuk atau Hubungkan Akun
-                    </button>
-                  )}
+                  <span className="settings-badge"><CheckCircle2 size={13} />Mode Lokal</span>
                 </div>
               </section>
+                            
 
               <section className="settings-card">
                 <div className="settings-card-header">
@@ -1201,7 +877,7 @@ function App() {
                   </div>
                   <div className="settings-field-box">
                     <span>Firebase Status</span>
-                    <strong>{firebaseConfigured ? 'Terkonfigurasi' : 'Belum Terkonfigurasi'}</strong>
+                    <strong>Aktif</strong>
                   </div>
                 </div>
               </section>
@@ -1213,13 +889,7 @@ function App() {
             <span>© 2026 CatatRapi — Pembukuan Keuangan Usaha</span>
             <span>
               <span className={`status-dot ${syncStatus}`} />
-              {syncStatus === 'synced'
-                ? 'Data tersinkron ke Firestore'
-                : syncStatus === 'connecting'
-                ? 'Menghubungkan ke Firestore...'
-                : syncStatus === 'error'
-                ? 'Sinkronisasi gagal · data tersimpan lokal'
-                : 'Mode lokal · Belum login ke Cloud'}
+              Data tersimpan di browser
             </span>
           </footer>
         </div>
@@ -1413,15 +1083,6 @@ function App() {
         </div>
       )}
 
-      {/* Authentication Modal */}
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        initialMode={authModalMode}
-        onSuccess={(profile) => {
-          setAuthUser(profile)
-        }}
-      />
     </div>
   )
 }
