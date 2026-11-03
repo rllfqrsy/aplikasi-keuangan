@@ -1,0 +1,18 @@
+:root {
+  font-family: "Aptos", "Segoe UI Variable", "Trebuchet MS", sans-serif;
+  --sans: "Aptos", "Segoe UI Variable", "Trebuchet MS", sans-serif;
+  --display: "Aptos Display", "Segoe UI Variable Display", "Trebuchet MS", sans-serif;
+  color: #35443a;
+  background: #f7f8f6;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
+}
+
+* { box-sizing: border-box; }
+body { min-width: 320px; min-height: 100vh; margin: 0; }
+button, input, select { font: inherit; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #5f9870; outline-offset: 2px; }
+::selection { color: #173d30; background: #d6ead9; }

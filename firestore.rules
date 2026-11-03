@@ -1,0 +1,29 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/transactions/{transactionId} {
+      function ownsData() {
+        return request.auth != null && request.auth.uid == userId;
+      }
+
+      function validTransaction() {
+        let data = request.resource.data;
+        return data.keys().hasOnly(['id', 'title', 'category', 'date', 'type', 'amount', 'account'])
+          && data.keys().hasAll(['id', 'title', 'category', 'date', 'type', 'amount', 'account'])
+          && data.id is int
+          && data.title is string
+          && data.category is string
+          && data.date is string
+          && data.type in ['income', 'expense']
+          && data.amount is number
+          && data.amount > 0
+          && data.account is string;
+      }
+
+      allow read: if ownsData();
+      allow create, update: if ownsData() && validTransaction();
+      allow delete: if ownsData();
+    }
+  }
+}
