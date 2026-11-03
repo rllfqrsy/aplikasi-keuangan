@@ -14,11 +14,13 @@ import {
   LayoutDashboard,
   LogIn,
   LogOut,
+  Pencil,
   Plus,
   Printer,
   Search,
   Settings2,
   ShieldCheck,
+  Trash2,
   Sparkles,
   User as UserIcon,
   Wallet,
@@ -26,8 +28,10 @@ import {
 } from 'lucide-react'
 import {
   listenToAuthState,
+  deleteUserTransaction,
   listenToUserTransactions,
   logOut,
+  logOutLocal,
   saveUserTransaction,
   type AuthUserProfile,
   type SyncStatus,
@@ -120,6 +124,7 @@ function App() {
   const [activeFilter, setActiveFilter] = useState('Semua')
   const [searchQuery, setSearchQuery] = useState('')
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null)
   const [transactionType, setTransactionType] = useState<TransactionType>('expense')
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(firebaseConfigured ? 'connecting' : 'local')
   const [pendingTransactions, setPendingTransactions] = useState<Transaction[]>([])
@@ -339,7 +344,8 @@ function App() {
 
   const handleLogout = async () => {
     setIsUserMenuOpen(false)
-    await logOut()
+    if (firebaseConfigured) await logOut()
+    else await logOutLocal()
     setAuthUser(null)
   }
 
@@ -358,7 +364,7 @@ function App() {
     const inputDate = String(formData.get('date') || defaultTodayDate)
 
     const newTransaction: Transaction = {
-      id: Date.now(),
+      id: editingTransaction?.id ?? Date.now(),
       title: String(formData.get('title')).trim(),
       category: String(formData.get('category')),
       date: inputDate,
@@ -368,7 +374,9 @@ function App() {
     }
 
     // Immediately update local state
-    setTransactions((current) => [newTransaction, ...current])
+    setTransactions((current) => editingTransaction
+      ? current.map((transaction) => transaction.id === editingTransaction.id ? newTransaction : transaction)
+      : [newTransaction, ...current])
 
     // If the new transaction's month is not in the currently selected period, switch to 'all'
     if (selectedPeriod !== 'all' && !inputDate.startsWith(selectedPeriod)) {
@@ -388,7 +396,33 @@ function App() {
     }
 
     setIsModalOpen(false)
+    setEditingTransaction(null)
     setActiveNav('Transaksi')
+  }
+
+  const openNewTransactionModal = () => {
+    setEditingTransaction(null)
+    setTransactionType('expense')
+    setIsModalOpen(true)
+  }
+
+  const openEditTransactionModal = (transaction: Transaction) => {
+    setEditingTransaction(transaction)
+    setTransactionType(transaction.type)
+    setIsModalOpen(true)
+  }
+
+  const deleteTransaction = async (transaction: Transaction) => {
+    if (!window.confirm(`Hapus transaksi "${transaction.title}"?`)) return
+    setTransactions((current) => current.filter((item) => item.id !== transaction.id))
+    if (authUser?.uid && firebaseConfigured) {
+      try {
+        await deleteUserTransaction(authUser.uid, transaction.id)
+        setSyncStatus('synced')
+      } catch {
+        setSyncStatus('error')
+      }
+    }
   }
 
   const exportTransactions = () => {
@@ -711,7 +745,7 @@ function App() {
                   : 'Atur preferensi akun dan workspace usahamu.'}
               </p>
             </div>
-            <button className="primary-button" onClick={() => setIsModalOpen(true)}>
+            <button className="primary-button" onClick={openNewTransactionModal}>
               <Plus size={17} strokeWidth={2.4} /> Catat transaksi
             </button>
           </section>
@@ -983,6 +1017,7 @@ function App() {
                       <th>TANGGAL</th>
                       <th>AKUN</th>
                       <th className="amount-heading">JUMLAH</th>
+                      <th className="transaction-actions-heading">AKSI</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1013,6 +1048,16 @@ function App() {
                           <td className={`amount-cell ${transaction.type}`}>
                             {transaction.type === 'income' ? '+' : '−'}{' '}
                             {formatCurrency(transaction.amount)}
+                          </td>
+                          <td className="transaction-actions-cell">
+                            <div className="transaction-row-actions">
+                              <button type="button" onClick={() => openEditTransactionModal(transaction)} aria-label={`Edit ${transaction.title}`} title="Edit">
+                                <Pencil size={14} />
+                              </button>
+                              <button className="delete-action" type="button" onClick={() => void deleteTransaction(transaction)} aria-label={`Hapus ${transaction.title}`} title="Hapus">
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1245,7 +1290,10 @@ function App() {
         <div
           className="modal-backdrop"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setIsModalOpen(false)
+            if (event.target === event.currentTarget) {
+              setIsModalOpen(false)
+              setEditingTransaction(null)
+            }
           }}
         >
           <section
@@ -1257,17 +1305,20 @@ function App() {
             <div className="modal-heading">
               <div>
                 <p className="eyebrow">PEMBUKUAN</p>
-                <h2 id="modal-title">Catat transaksi</h2>
+                <h2 id="modal-title">{editingTransaction ? 'Edit transaksi' : 'Catat transaksi'}</h2>
               </div>
               <button
                 className="icon-button"
-                onClick={() => setIsModalOpen(false)}
+                onClick={() => {
+                  setIsModalOpen(false)
+                  setEditingTransaction(null)
+                }}
                 aria-label="Tutup dialog"
               >
                 <X size={18} />
               </button>
             </div>
-            <form onSubmit={addTransaction}>
+            <form key={editingTransaction?.id ?? 'new'} onSubmit={addTransaction}>
               <div className="type-switch" role="group" aria-label="Jenis transaksi">
                 <button
                   type="button"
@@ -1290,6 +1341,7 @@ function App() {
                 <input
                   name="title"
                   placeholder="Contoh: Pembayaran klien / Beli perlengkapan"
+                  defaultValue={editingTransaction?.title ?? ''}
                   required
                   autoFocus
                 />
@@ -1304,6 +1356,7 @@ function App() {
                     min="1"
                     step="1"
                     placeholder="0"
+                    defaultValue={editingTransaction?.amount ?? ''}
                     required
                   />
                 </label>
@@ -1312,7 +1365,7 @@ function App() {
                   <input
                     name="date"
                     type="date"
-                    defaultValue={defaultTodayDate}
+                    defaultValue={editingTransaction?.date ?? defaultTodayDate}
                     required
                   />
                 </label>
@@ -1321,7 +1374,7 @@ function App() {
               <div className="form-row">
                 <label className="form-field">
                   Kategori
-                  <select name="category" defaultValue="Operasional">
+                  <select name="category" defaultValue={editingTransaction?.category ?? 'Operasional'}>
                     <option>Operasional</option>
                     <option>Proyek</option>
                     <option>Tools</option>
@@ -1332,7 +1385,7 @@ function App() {
                 </label>
                 <label className="form-field">
                   Akun
-                  <select name="account" defaultValue="BCA Operasional">
+                  <select name="account" defaultValue={editingTransaction?.account ?? 'BCA Operasional'}>
                     <option>BCA Operasional</option>
                     <option>Kartu bisnis</option>
                     <option>Tunai</option>
@@ -1344,12 +1397,15 @@ function App() {
                 <button
                   type="button"
                   className="secondary-button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={() => {
+                    setIsModalOpen(false)
+                    setEditingTransaction(null)
+                  }}
                 >
                   Batal
                 </button>
                 <button type="submit" className="primary-button">
-                  <Plus size={16} /> Simpan transaksi
+                  <Plus size={16} /> {editingTransaction ? 'Simpan perubahan' : 'Simpan transaksi'}
                 </button>
               </div>
             </form>

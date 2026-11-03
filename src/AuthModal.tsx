@@ -16,11 +16,14 @@ import {
   getFirebaseAuthErrorMessage,
   resetPassword,
   signInAsGuest,
+  signInLocal,
   signInWithEmail,
   signInWithGoogle,
+  signUpLocal,
   signUpWithEmail,
   type AuthUserProfile,
 } from './firebase'
+import { firebaseConfigured } from './firebase-config'
 import './AuthModal.css'
 
 type AuthMode = 'login' | 'register' | 'forgot'
@@ -86,16 +89,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           setLoading(false)
           return
         }
-        const profile = await signUpWithEmail(email, password, name)
+        const profile = firebaseConfigured
+          ? await signUpWithEmail(email, password, name)
+          : await signUpLocal(email, password, name)
         onSuccess?.(profile)
         onClose()
       } else {
-        const profile = await signInWithEmail(email, password)
+        const profile = firebaseConfigured
+          ? await signInWithEmail(email, password)
+          : await signInLocal(email, password)
         onSuccess?.(profile)
         onClose()
       }
     } catch (err) {
-      setError(getFirebaseAuthErrorMessage(err))
+      setError(firebaseConfigured ? getFirebaseAuthErrorMessage(err) : (err instanceof Error ? err.message : 'Terjadi kesalahan.'))
     } finally {
       setLoading(false)
     }
@@ -206,7 +213,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         )}
 
-        {mode !== 'forgot' && (
+        {mode !== 'forgot' && firebaseConfigured && (
           <div className="auth-social-area">
             <button
               type="button"
@@ -341,7 +348,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             >
               ← Kembali ke halaman Masuk
             </button>
-          ) : (
+          ) : firebaseConfigured ? (
             <div className="guest-row">
               <button
                 type="button"
@@ -353,6 +360,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <span>{guestLoading ? 'Memuat...' : 'Coba Mode Tamu / Offline'}</span>
               </button>
             </div>
+          ) : (
+            <span className="local-auth-note">Akun disimpan aman di browser perangkat ini.</span>
           )}
         </div>
       </div>

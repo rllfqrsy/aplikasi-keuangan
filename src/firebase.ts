@@ -67,12 +67,70 @@ export function getCurrentAuthUser(): AuthUserProfile | null {
   return mapFirebaseUser(auth.currentUser)
 }
 
+const LOCAL_AUTH_KEY = 'catat-rapi-local-account'
+const LOCAL_SESSION_KEY = 'catat-rapi-local-session'
+
+async function hashPassword(password: string) {
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(password))
+  return Array.from(new Uint8Array(bytes)).map((value) => value.toString(16).padStart(2, '0')).join('')
+}
+
+export function getLocalAuthUser(): AuthUserProfile | null {
+  try {
+    const session = JSON.parse(localStorage.getItem(LOCAL_SESSION_KEY) || 'null') as AuthUserProfile | null
+    return session
+  } catch {
+    return null
+  }
+}
+
+export async function signUpLocal(email: string, pass: string, displayName?: string): Promise<AuthUserProfile> {
+  const normalizedEmail = email.trim().toLowerCase()
+  if (!normalizedEmail || pass.length < 6) throw new Error('Data akun tidak valid.')
+
+  const accounts = JSON.parse(localStorage.getItem(LOCAL_AUTH_KEY) || '{}') as Record<string, { passwordHash: string; displayName: string }>
+  if (accounts[normalizedEmail]) throw new Error('Email ini sudah terdaftar. Silakan masuk.')
+
+  accounts[normalizedEmail] = { passwordHash: await hashPassword(pass), displayName: displayName?.trim() || normalizedEmail.split('@')[0] }
+  localStorage.setItem(LOCAL_AUTH_KEY, JSON.stringify(accounts))
+  const profile: AuthUserProfile = {
+    uid: `local-${normalizedEmail}`,
+    email: normalizedEmail,
+    displayName: accounts[normalizedEmail].displayName,
+    photoURL: null,
+    isAnonymous: false,
+  }
+  localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(profile))
+  return profile
+}
+
+export async function signInLocal(email: string, pass: string): Promise<AuthUserProfile> {
+  const normalizedEmail = email.trim().toLowerCase()
+  const accounts = JSON.parse(localStorage.getItem(LOCAL_AUTH_KEY) || '{}') as Record<string, { passwordHash: string; displayName: string }>
+  const account = accounts[normalizedEmail]
+  if (!account || account.passwordHash !== await hashPassword(pass)) throw new Error('Email atau kata sandi tidak cocok.')
+
+  const profile: AuthUserProfile = {
+    uid: `local-${normalizedEmail}`,
+    email: normalizedEmail,
+    displayName: account.displayName,
+    photoURL: null,
+    isAnonymous: false,
+  }
+  localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(profile))
+  return profile
+}
+
+export async function logOutLocal() {
+  localStorage.removeItem(LOCAL_SESSION_KEY)
+}
+
 export function listenToAuthState(callbacks: {
   onUser: (user: AuthUserProfile | null) => void
   onLoading?: (loading: boolean) => void
 }) {
   if (!auth) {
-    callbacks.onUser(null)
+    callbacks.onUser(getLocalAuthUser())
     callbacks.onLoading?.(false)
     return () => undefined
   }

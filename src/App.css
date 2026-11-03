@@ -394,6 +394,12 @@ td { height: 54px; padding: 0 13px; border-top: 1px solid #f0f2ef; color: #75817
 .amount-heading, .amount-cell { text-align: right; }
 .amount-cell { font-size: 10px; font-weight: 700; }
 .amount-cell.income { color: #368056; }.amount-cell.expense { color: #4b594f; }
+.transaction-actions-heading { text-align: right; }
+.transaction-actions-cell { text-align: right; }
+.transaction-row-actions { display: inline-flex; align-items: center; gap: 4px; }
+.transaction-row-actions button { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid #e1e7e1; border-radius: 6px; color: #66766c; background: #fff; cursor: pointer; }
+.transaction-row-actions button:hover { border-color: #a9c5b1; color: #1d6649; background: #f4f8f4; }
+.transaction-row-actions .delete-action:hover { border-color: #efc3bb; color: #b84a38; background: #fff5f3; }
 .table-footer { display: flex; min-height: 43px; align-items: center; justify-content: space-between; gap: 12px; padding: 0 20px; border-top: 1px solid #edf0ec; color: #969f98; font-size: 9px; }
 .table-footer strong { color: #66746a; font-weight: 650; }
 .table-footer button { display: flex; align-items: center; gap: 7px; padding: 0; border: 0; color: #357650; background: transparent; font-size: 9px; font-weight: 650; cursor: pointer; }
