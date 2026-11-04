@@ -3,15 +3,14 @@ import {
   ArrowDownLeft,
   ArrowDownRight,
   ArrowUpRight,
+  BookOpen,
   CalendarDays,
   ChartNoAxesCombined,
   CheckCircle2,
   ChevronDown,
   CircleHelp,
   CreditCard,
-  Download,
   FileText,
-  LayoutDashboard,
   Pencil,
   Plus,
   Printer,
@@ -27,54 +26,23 @@ import {
   type SyncStatus,
   type TransactionRecord,
 } from './firebase'
+import {
+  formatAmountInput,
+  formatCurrency,
+  formatDate,
+  formatPeriodLabel,
+  MONTH_NAMES,
+  normalizeLedger,
+  parseAmount,
+  remainingReceivable,
+  sumTransactions,
+} from './financeUtils'
 import './App.css'
 
 type TransactionType = TransactionRecord['type']
 type Transaction = TransactionRecord
 
 const initialTransactions: Transaction[] = []
-
-const formatCurrency = (amount: number) =>
-  new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(
-    Number(amount) || 0
-  )
-
-const formatDate = (date: string) => {
-  if (!date) return '-'
-  try {
-    return new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }).format(
-      new Date(`${date}T00:00:00`)
-    )
-  } catch {
-    return date
-  }
-}
-
-const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
-const fullMonthNames = [
-  'Januari',
-  'Februari',
-  'Maret',
-  'April',
-  'Mei',
-  'Juni',
-  'Juli',
-  'Agustus',
-  'September',
-  'Oktober',
-  'November',
-  'Desember',
-]
-
-function formatPeriodLabel(periodKey: string): string {
-  if (periodKey === 'all') return 'Semua Periode'
-  const [yearStr, monthStr] = periodKey.split('-')
-  const monthNum = Number(monthStr) - 1
-  if (monthNum >= 0 && monthNum < 12) {
-    return `${fullMonthNames[monthNum]} ${yearStr}`
-  }
-  return periodKey
-}
 
 const defaultTodayDate = new Date().toISOString().slice(0, 10)
 const defaultMonthPrefix = new Date().toISOString().slice(0, 7)
@@ -98,12 +66,33 @@ function App() {
     }
   })
 
-  const [activeNav, setActiveNav] = useState('Dashboard')
+  const [activeNav, setActiveNav] = useState('Buku Keuangan')
   const [activeFilter, setActiveFilter] = useState('Semua')
   const [searchQuery, setSearchQuery] = useState('')
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null)
   const [transactionType, setTransactionType] = useState<TransactionType>('expense')
+  const [receivableMode, setReceivableMode] = useState<'credit' | 'payment'>('credit')
+  const [activeLedger, setActiveLedger] = useState('Semua Buku')
+  const [ledgers, setLedgers] = useState<string[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('catat-rapi-ledgers') || '[]') as string[]
+      return Array.from(new Set(saved.filter((ledger) => ledger.trim() && ledger.trim() !== 'Umum')))
+    } catch {
+      return []
+    }
+  })
+  const [hasCompletedLedgerSetup, setHasCompletedLedgerSetup] = useState(() => {
+    try {
+      const savedLedgers = JSON.parse(localStorage.getItem('catat-rapi-ledgers') || '[]') as string[]
+      const usableLedgers = savedLedgers.filter((ledger) => ledger.trim() && ledger.trim() !== 'Umum')
+      return usableLedgers.length > 0
+    } catch {
+      return false
+    }
+  })
+  const [newLedgerName, setNewLedgerName] = useState('')
+  const [isLedgerModalOpen, setIsLedgerModalOpen] = useState(false)
   const syncStatus: SyncStatus = 'local'
 
   // Auth State
@@ -134,6 +123,18 @@ function App() {
     localStorage.setItem('catat-rapi-transactions', JSON.stringify(transactions))
   }, [transactions])
 
+  useEffect(() => {
+    localStorage.setItem('catat-rapi-ledgers', JSON.stringify(ledgers))
+  }, [ledgers])
+
+  const availableLedgers = useMemo(
+    () => Array.from(new Set(
+      [...ledgers, ...transactions.map(normalizeLedger)]
+        .filter((ledger) => ledger.trim() && ledger.trim() !== 'Umum')
+    )),
+    [ledgers, transactions]
+  )
+
 
   // Calculate available months dynamically from transactions
   const availableMonths = useMemo(() => {
@@ -148,21 +149,8 @@ function App() {
   }, [transactions])
 
   // All-time totals (used for total cash balance)
-  const allTimeIncome = useMemo(
-    () =>
-      transactions
-        .filter((tx) => tx.type === 'income')
-        .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0),
-    [transactions]
-  )
-
-  const allTimeExpense = useMemo(
-    () =>
-      transactions
-        .filter((tx) => tx.type === 'expense')
-        .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0),
-    [transactions]
-  )
+  const allTimeIncome = useMemo(() => sumTransactions(transactions, 'income'), [transactions])
+  const allTimeExpense = useMemo(() => sumTransactions(transactions, 'expense'), [transactions])
 
   // Total dynamic balance
   const totalBalance = allTimeIncome - allTimeExpense
@@ -173,52 +161,44 @@ function App() {
     return transactions.filter((tx) => tx.date.startsWith(selectedPeriod))
   }, [transactions, selectedPeriod])
 
-  const periodIncomeTotal = useMemo(
-    () =>
-      periodTransactions
-        .filter((tx) => tx.type === 'income')
-        .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0),
-    [periodTransactions]
-  )
-
-  const periodExpenseTotal = useMemo(
-    () =>
-      periodTransactions
-        .filter((tx) => tx.type === 'expense')
-        .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0),
-    [periodTransactions]
-  )
+  const periodIncomeTotal = useMemo(() => sumTransactions(periodTransactions, 'income'), [periodTransactions])
+  const periodExpenseTotal = useMemo(() => sumTransactions(periodTransactions, 'expense'), [periodTransactions])
 
   const netCashflow = periodIncomeTotal - periodExpenseTotal
+
+  const outstandingReceivables = useMemo(
+    () => periodTransactions
+      .filter((tx) => tx.type === 'receivable' && !tx.receivablePaid)
+      .reduce((sum, tx) => sum + remainingReceivable(tx), 0),
+    [periodTransactions]
+  )
 
   // Filtered transactions for table search & tab filter
   const filteredTransactions = useMemo(() => {
     return transactions.filter((transaction) => {
       const matchesType =
         activeFilter === 'Semua' ||
-        (activeFilter === 'Pemasukan' ? transaction.type === 'income' : transaction.type === 'expense')
-      const matchesSearch = `${transaction.title} ${transaction.category} ${transaction.account}`
+        (activeFilter === 'Pemasukan' ? transaction.type === 'income'
+          : activeFilter === 'Pengeluaran' ? transaction.type === 'expense'
+          : activeFilter === 'Utang' && transaction.type === 'receivable')
+      const matchesLedger = activeLedger === 'Semua Buku' || normalizeLedger(transaction) === activeLedger
+      const matchesSearch = `${transaction.title} ${transaction.category} ${transaction.account} ${normalizeLedger(transaction)}`
         .toLowerCase()
         .includes(searchQuery.toLowerCase())
       const matchesPeriod =
-        selectedPeriod === 'all' || activeNav !== 'Dashboard' || transaction.date.startsWith(selectedPeriod)
-      return matchesType && matchesSearch && matchesPeriod
+        selectedPeriod === 'all' || transaction.date.startsWith(selectedPeriod)
+      return matchesType && matchesLedger && matchesSearch && matchesPeriod
     })
-  }, [transactions, activeFilter, searchQuery, selectedPeriod, activeNav])
+  }, [transactions, activeFilter, activeLedger, searchQuery, selectedPeriod])
 
-  const reportIncomeTotal = useMemo(
+  const reportIncomeTotal = useMemo(() => sumTransactions(filteredTransactions, 'income'), [filteredTransactions])
+  const reportExpenseTotal = useMemo(() => sumTransactions(filteredTransactions, 'expense'), [filteredTransactions])
+
+  const reportReceivableTotal = useMemo(
     () =>
       filteredTransactions
-        .filter((tx) => tx.type === 'income')
-        .reduce((total, tx) => total + (Number(tx.amount) || 0), 0),
-    [filteredTransactions]
-  )
-
-  const reportExpenseTotal = useMemo(
-    () =>
-      filteredTransactions
-        .filter((tx) => tx.type === 'expense')
-        .reduce((total, tx) => total + (Number(tx.amount) || 0), 0),
+        .filter((tx) => tx.type === 'receivable' && !tx.receivablePaid)
+        .reduce((total, tx) => total + remainingReceivable(tx), 0),
     [filteredTransactions]
   )
 
@@ -240,7 +220,7 @@ function App() {
         .filter((tx) => tx.type === 'expense')
         .reduce((total, tx) => total + (Number(tx.amount) || 0), 0)
       return {
-        label: monthNames[d.getMonth()],
+        label: MONTH_NAMES[d.getMonth()],
         income,
         expense,
         prefix,
@@ -254,11 +234,37 @@ function App() {
   )
 
   // Handle adding a new transaction with robust number parsing
-  const addTransaction = async (event: React.FormEvent<HTMLFormElement>) => {
+  const addTransaction = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const formData = new FormData(event.currentTarget)
     const rawAmount = String(formData.get('amount') || '').trim()
-    const cleanAmount = Number(rawAmount.replace(/[^0-9]/g, '')) || Number(rawAmount) || 0
+    const cleanAmount = parseAmount(rawAmount)
+    if (transactionType === 'receivable' && receivableMode === 'payment') {
+      const receivableId = Number(formData.get('receivableId'))
+      const target = transactions.find((transaction) => transaction.id === receivableId && transaction.type === 'receivable')
+      if (!target) {
+        alert('Pilih piutang yang akan dilunasi.')
+        return
+      }
+      const alreadyPaid = Number(target.receivablePaidAmount) || 0
+      const remaining = Number(target.amount) - alreadyPaid
+      if (cleanAmount > remaining) {
+        alert(`Pelunasan maksimal adalah ${formatCurrency(remaining)}.`)
+        return
+      }
+      const totalPaid = alreadyPaid + cleanAmount
+      setTransactions((current) => current.map((transaction) => transaction.id === receivableId
+        ? {
+            ...transaction,
+            receivablePaidAmount: totalPaid,
+            receivablePaid: totalPaid >= transaction.amount,
+          }
+        : transaction))
+      setIsModalOpen(false)
+      setEditingTransaction(null)
+      setActiveNav('Transaksi')
+      return
+    }
 
     if (cleanAmount <= 0) {
       alert('Jumlah transaksi harus berupa angka positif lebih dari 0.')
@@ -270,11 +276,23 @@ function App() {
     const newTransaction: Transaction = {
       id: editingTransaction?.id ?? Date.now(),
       title: String(formData.get('title')).trim(),
-      category: String(formData.get('category')),
+      category: transactionType === 'receivable'
+        ? '-'
+        : String(formData.get('category') || (transactionType === 'income' ? 'Pendapatan' : 'Operasional')),
       date: inputDate,
       type: transactionType,
       amount: cleanAmount,
       account: String(formData.get('account')),
+      ledger: String(formData.get('ledger') || '').trim(),
+      dueDate: transactionType === 'receivable' ? String(formData.get('dueDate') || '') : undefined,
+      receivablePaid: transactionType === 'receivable'
+        ? false
+        : undefined,
+      receivablePaidAmount: transactionType === 'receivable' ? 0 : undefined,
+    }
+
+    if (newTransaction.ledger) {
+      setLedgers((current) => Array.from(new Set([...current, newTransaction.ledger!])))
     }
 
     // Immediately update local state
@@ -293,9 +311,34 @@ function App() {
   }
 
   const openNewTransactionModal = () => {
+    if (ledgers.length === 0) {
+      setIsLedgerModalOpen(true)
+      return
+    }
     setEditingTransaction(null)
     setTransactionType('expense')
+    setReceivableMode('credit')
     setIsModalOpen(true)
+  }
+
+  const createLedger = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const ledgerName = newLedgerName.trim()
+    if (!ledgerName) return
+    if (ledgerName.toLowerCase() === 'umum') {
+      alert('Buku Umum tidak tersedia. Silakan gunakan nama buku lain.')
+      return
+    }
+    if (ledgers.some((ledger) => ledger.toLowerCase() === ledgerName.toLowerCase())) {
+      alert('Nama buku keuangan sudah digunakan.')
+      return
+    }
+    setLedgers((current) => [...current, ledgerName])
+    setActiveLedger(ledgerName)
+    setHasCompletedLedgerSetup(true)
+    localStorage.setItem('catat-rapi-ledger-setup', 'true')
+    setNewLedgerName('')
+    setIsLedgerModalOpen(false)
   }
 
   const openEditTransactionModal = (transaction: Transaction) => {
@@ -304,46 +347,76 @@ function App() {
     setIsModalOpen(true)
   }
 
-  const deleteTransaction = async (transaction: Transaction) => {
+  const deleteTransaction = (transaction: Transaction) => {
     if (!window.confirm(`Hapus transaksi "${transaction.title}"?`)) return
     setTransactions((current) => current.filter((item) => item.id !== transaction.id))
   }
 
-  const exportTransactions = () => {
-    const rows = [
-      ['Tanggal', 'Nama', 'Kategori', 'Jenis', 'Jumlah', 'Akun'],
-      ...filteredTransactions.map((tx) => [
-        tx.date,
-        tx.title,
-        tx.category,
-        tx.type === 'income' ? 'Pemasukan' : 'Pengeluaran',
-        String(tx.amount),
-        tx.account,
-      ]),
-    ]
-    const csv = `\uFEFF${rows.map((row) => row.map((cell) => `"${cell.replaceAll('"', '""')}"`).join(',')).join('\r\n')}`
-    const fileUrl = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
-    const link = document.createElement('a')
-    link.href = fileUrl
-    link.download = 'transaksi-catat-rapi.csv'
-    link.click()
-    URL.revokeObjectURL(fileUrl)
+  const toggleReceivablePaid = (transaction: Transaction) => {
+    setTransactions((current) => current.map((item) => item.id === transaction.id
+      ? {
+          ...item,
+          receivablePaid: !item.receivablePaid,
+          receivablePaidAmount: item.receivablePaid ? 0 : item.amount,
+        }
+      : item))
+  }
+
+  const downloadPdf = async () => {
+    const { jsPDF } = await import('jspdf')
+    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+    const pageWidth = pdf.internal.pageSize.getWidth()
+    let y = 16
+
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(17)
+    pdf.text('CatatRapi - Laporan Keuangan', 14, y)
+    y += 8
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(10)
+    pdf.text(`${formatPeriodLabel(selectedPeriod)} | ${activeLedger}`, 14, y)
+    y += 10
+
+    pdf.setFont('helvetica', 'bold')
+    pdf.text(`Pemasukan: ${formatCurrency(reportIncomeTotal)}`, 14, y)
+    pdf.text(`Pengeluaran: ${formatCurrency(reportExpenseTotal)}`, 75, y)
+    pdf.text(`Utang: ${formatCurrency(reportReceivableTotal)}`, 136, y)
+    pdf.text(`Bersih: ${formatCurrency(reportIncomeTotal - reportExpenseTotal)}`, 190, y)
+    y += 8
+
+    pdf.setFontSize(9)
+    filteredTransactions.forEach((transaction) => {
+      if (y > 185) {
+        pdf.addPage()
+        y = 16
+      }
+      const typeLabel = transaction.type === 'income'
+        ? 'Pemasukan'
+        : transaction.type === 'expense'
+          ? 'Pengeluaran'
+          : 'Utang'
+      const status = transaction.type === 'receivable'
+        ? (transaction.receivablePaid ? 'Lunas' : 'Belum lunas')
+        : ''
+      const line = `${formatDate(transaction.date)} | ${transaction.title} | ${normalizeLedger(transaction)} | ${typeLabel} | ${formatCurrency(transaction.amount)}${status ? ` | ${status}` : ''}`
+      pdf.text(pdf.splitTextToSize(line, pageWidth - 28), 14, y)
+      y += 7
+    })
+
+    pdf.save(`laporan-keuangan-${selectedPeriod === 'all' ? 'semua-periode' : selectedPeriod}.pdf`)
   }
 
   const navItems = [
-    { label: 'Dashboard', icon: LayoutDashboard },
+    { label: 'Buku Keuangan', icon: BookOpen },
     { label: 'Transaksi', icon: CreditCard },
     { label: 'Laporan', icon: ChartNoAxesCombined },
   ]
-
-  const userName = 'Pemilik Usaha'
-  const userInitial = 'U'
 
   return (
     <div className="app-shell">
       {/* Sidebar */}
       <aside className="sidebar">
-        <a className="brand" href="#dashboard" onClick={() => setActiveNav('Dashboard')}>
+        <a className="brand" href="#buku-keuangan" onClick={() => setActiveNav('Buku Keuangan')}>
           <span className="brand-mark">
             <Wallet size={19} strokeWidth={2.3} />
           </span>
@@ -352,15 +425,6 @@ function App() {
             <small>KEUANGAN USAHA</small>
           </span>
         </a>
-
-        <div className="workspace-switcher">
-          <span className="workspace-avatar">{userInitial}</span>
-          <span className="workspace-copy">
-            <strong>Karsa Studio</strong>
-            <small>Workspace Bisnis</small>
-          </span>
-          <ChevronDown size={15} />
-        </div>
 
         <p className="nav-caption">MENU UTAMA</p>
         <nav className="main-nav" aria-label="Navigasi utama">
@@ -396,11 +460,7 @@ function App() {
             <Settings2 size={18} />
             <span>Pengaturan</span>
           </button>
-
-          <div className="local-profile-row">
-            <span className="profile-avatar">K</span>
-            <span className="profile-copy"><strong>Karsa Studio</strong><small>Catatan tersimpan di browser</small></span>
-          </div>        </div>
+        </div>
       </aside>
 
       {/* Main Content Area */}
@@ -474,13 +534,11 @@ function App() {
             <div>
               <p className="eyebrow">{defaultFormattedToday.toUpperCase()}</p>
               <h1>
-                {activeNav === 'Dashboard'
-                  ? `Selamat datang, ${userName}`
-                  : activeNav}
+                {activeNav}
               </h1>
               <p className="page-subtitle">
-                {activeNav === 'Dashboard'
-                  ? `Ringkasan performa keuangan — Periode: ${formatPeriodLabel(selectedPeriod)}.`
+                {activeNav === 'Buku Keuangan'
+                  ? 'Buat dan kelola pencatatan keuangan yang dipisahkan per usaha atau proyek.'
                   : activeNav === 'Transaksi'
                   ? 'Semua pemasukan dan pengeluaran usahamu yang tercatat.'
                   : activeNav === 'Laporan'
@@ -488,12 +546,19 @@ function App() {
                   : 'Atur preferensi akun dan workspace usahamu.'}
               </p>
             </div>
-            <button className="primary-button" onClick={openNewTransactionModal}>
-              <Plus size={17} strokeWidth={2.4} /> Catat transaksi
-            </button>
+            {activeNav === 'Buku Keuangan' ? (
+              <button className="primary-button" onClick={() => setIsLedgerModalOpen(true)}>
+                <Plus size={17} strokeWidth={2.4} /> Buku baru
+              </button>
+            ) : (
+              <button className="primary-button" onClick={openNewTransactionModal}>
+                <Plus size={17} strokeWidth={2.4} /> Catat transaksi
+              </button>
+            )}
           </section>
 
           {/* Summary Cards */}
+          {activeNav !== 'Buku Keuangan' && activeNav !== 'Pengaturan' && (
           <section className="summary-grid" aria-label="Ringkasan keuangan">
             <article className="summary-card balance-card">
               <div className="summary-top">
@@ -523,7 +588,9 @@ function App() {
                   <ArrowDownLeft size={18} />
                 </span>
               </div>
-              <strong className="summary-amount">{formatCurrency(periodIncomeTotal)}</strong>
+              <strong className="summary-amount">
+                {formatCurrency(activeNav === 'Laporan' ? reportIncomeTotal : periodIncomeTotal)}
+              </strong>
               <div className="summary-foot">
                 <span className="positive-change">
                   <ArrowUpRight size={14} />
@@ -545,7 +612,9 @@ function App() {
                   <ArrowUpRight size={18} />
                 </span>
               </div>
-              <strong className="summary-amount">{formatCurrency(periodExpenseTotal)}</strong>
+              <strong className="summary-amount">
+                {formatCurrency(activeNav === 'Laporan' ? reportExpenseTotal : periodExpenseTotal)}
+              </strong>
               <div className="summary-foot">
                 <span className="negative-change">
                   <ArrowDownRight size={14} />
@@ -558,6 +627,24 @@ function App() {
               </div>
             </article>
 
+            <article className="summary-card receivable-card">
+              <div className="summary-top">
+                <span className="summary-label">Utang belum lunas</span>
+                <span className="summary-icon receivable-icon">
+                  <FileText size={18} />
+                </span>
+              </div>
+              <strong className="summary-amount">
+                {formatCurrency(activeNav === 'Laporan' ? reportReceivableTotal : outstandingReceivables)}
+              </strong>
+              <div className="summary-foot">
+                <span className="neutral-change">
+                  {periodTransactions.filter((tx) => tx.type === 'receivable' && !tx.receivablePaid).length} utang
+                </span>
+                <span>belum masuk kas</span>
+              </div>
+            </article>
+
             <article className="summary-card">
               <div className="summary-top">
                 <span className="summary-label">Arus kas bersih</span>
@@ -565,7 +652,13 @@ function App() {
                   <ChartNoAxesCombined size={18} />
                 </span>
               </div>
-              <strong className="summary-amount">{formatCurrency(netCashflow)}</strong>
+              <strong className="summary-amount">
+                {formatCurrency(
+                  activeNav === 'Laporan'
+                    ? reportIncomeTotal - reportExpenseTotal
+                    : netCashflow
+                )}
+              </strong>
               <div className="summary-foot">
                 <span className={netCashflow >= 0 ? 'positive-change' : 'negative-change'}>
                   {netCashflow >= 0 ? 'Surplus' : 'Defisit'}
@@ -579,9 +672,10 @@ function App() {
               </div>
             </article>
           </section>
+          )}
 
           {/* Cashflow Chart */}
-          {(activeNav === 'Dashboard' || activeNav === 'Laporan') && (
+          {activeNav === 'Laporan' && (
             <section className="chart-section">
               <div className="section-heading">
                 <div>
@@ -663,7 +757,7 @@ function App() {
           )}
 
           {/* Transactions Table Section */}
-          {(activeNav === 'Dashboard' || activeNav === 'Transaksi' || activeNav === 'Laporan') && (
+          {(activeNav === 'Transaksi' || activeNav === 'Laporan') && (
             <section className="transactions-section">
               <div
                 className={`section-heading transaction-heading ${
@@ -672,37 +766,31 @@ function App() {
               >
                 <div>
                   <h2>
-                    {activeNav === 'Dashboard'
-                      ? 'Transaksi terbaru'
-                      : activeNav === 'Laporan'
+                    {activeNav === 'Laporan'
                       ? 'Rincian laporan keuangan'
                       : 'Semua transaksi'}
                   </h2>
                   <p>
-                    {activeNav === 'Dashboard'
-                      ? `Menampilkan aktivitas keuangan (${formatPeriodLabel(selectedPeriod)})`
-                      : activeNav === 'Laporan'
+                    {activeNav === 'Laporan'
                       ? `${filteredTransactions.length} transaksi dalam laporan`
                       : `${transactions.length} total transaksi tersimpan`}
                   </p>
                 </div>
 
-                {activeNav === 'Dashboard' && (
-                  <button className="text-button" onClick={() => setActiveNav('Transaksi')}>
-                    Lihat semua <span aria-hidden="true">→</span>
-                  </button>
-                )}
-
                 {activeNav === 'Laporan' && (
                   <div className="report-actions">
-                    <button className="report-action" onClick={exportTransactions}>
-                      <Download size={15} /> Ekspor CSV
-                    </button>
                     <button
                       className="report-action report-print-action"
+                      onClick={downloadPdf}
+                    >
+                      <Printer size={15} /> Unduh PDF
+                    </button>
+                    <button
+                      type="button"
+                      className="report-action"
                       onClick={() => window.print()}
                     >
-                      <Printer size={15} /> Cetak / PDF
+                      <Printer size={15} /> Cetak
                     </button>
                   </div>
                 )}
@@ -710,7 +798,7 @@ function App() {
 
               <div className="table-toolbar">
                 <div className="filter-tabs" role="tablist" aria-label="Filter transaksi">
-                  {['Semua', 'Pemasukan', 'Pengeluaran'].map((filter) => (
+                  {['Semua', 'Pemasukan', 'Pengeluaran', 'Utang'].map((filter) => (
                     <button
                       key={filter}
                       className={activeFilter === filter ? 'filter-active' : ''}
@@ -723,6 +811,13 @@ function App() {
                 </div>
 
                 <div className={`table-actions ${activeNav === 'Laporan' ? 'report-filter-actions' : ''}`}>
+                  <label className="ledger-filter">
+                    <span>Buku</span>
+                    <select value={activeLedger} onChange={(event) => setActiveLedger(event.target.value)}>
+                      <option>Semua Buku</option>
+                      {availableLedgers.map((ledger) => <option key={ledger}>{ledger}</option>)}
+                    </select>
+                  </label>
                   <label className="search-box">
                     <Search size={16} />
                     <input
@@ -734,17 +829,17 @@ function App() {
                   </label>
                   <button
                     className="icon-button export-button"
-                    onClick={exportTransactions}
-                    title="Unduh CSV"
-                    aria-label="Unduh transaksi sebagai CSV"
+                    onClick={downloadPdf}
+                    title="Unduh PDF"
+                    aria-label="Unduh laporan sebagai PDF"
                   >
-                    <Download size={16} />
+                    <Printer size={16} />
                   </button>
                   <button
                     className="icon-button print-button"
-                    onClick={() => window.print()}
-                    title="Cetak atau simpan sebagai PDF"
-                    aria-label="Cetak atau simpan transaksi sebagai PDF"
+                    onClick={downloadPdf}
+                    title="Unduh PDF"
+                    aria-label="Unduh transaksi sebagai PDF"
                   >
                     <Printer size={16} />
                   </button>
@@ -757,6 +852,7 @@ function App() {
                     <tr>
                       <th>TRANSAKSI</th>
                       <th>KATEGORI</th>
+                      <th>BUKU</th>
                       <th>TANGGAL</th>
                       <th>AKUN</th>
                       <th className="amount-heading">JUMLAH</th>
@@ -765,7 +861,6 @@ function App() {
                   </thead>
                   <tbody>
                     {filteredTransactions
-                      .slice(0, activeNav === 'Dashboard' ? 6 : undefined)
                       .map((transaction) => (
                         <tr key={transaction.id}>
                           <td>
@@ -773,27 +868,47 @@ function App() {
                               <span className={`transaction-symbol ${transaction.type}`}>
                                 {transaction.type === 'income' ? (
                                   <ArrowDownLeft size={16} />
-                                ) : (
+                                ) : transaction.type === 'expense' ? (
                                   <ArrowUpRight size={16} />
+                                ) : (
+                                  <CheckCircle2 size={16} />
                                 )}
                               </span>
                               <span>
                                 <strong>{transaction.title}</strong>
-                                <small>{transaction.type === 'income' ? 'Pemasukan' : 'Pengeluaran'}</small>
+                                <small>
+                                  {transaction.type === 'income'
+                                    ? 'Pemasukan'
+                                    : transaction.type === 'expense'
+                                      ? 'Pengeluaran'
+                                      : transaction.receivablePaid ? 'Utang lunas' : 'Utang belum lunas'}
+                                </small>
                               </span>
                             </div>
                           </td>
                           <td>
                             <span className="category-label">{transaction.category}</span>
                           </td>
+                          <td>{normalizeLedger(transaction)}</td>
                           <td className="date-cell">{formatDate(transaction.date)}</td>
                           <td className="account-cell">{transaction.account}</td>
                           <td className={`amount-cell ${transaction.type}`}>
-                            {transaction.type === 'income' ? '+' : '−'}{' '}
+                            {transaction.type === 'income' ? '+' : transaction.type === 'expense' ? '−' : ''}{' '}
                             {formatCurrency(transaction.amount)}
                           </td>
                           <td className="transaction-actions-cell">
                             <div className="transaction-row-actions">
+                              {transaction.type === 'receivable' && (
+                                <button
+                                  type="button"
+                                  className={transaction.receivablePaid ? 'delete-action' : ''}
+                                  onClick={() => toggleReceivablePaid(transaction)}
+                                  aria-label={transaction.receivablePaid ? 'Tandai belum lunas' : 'Tandai piutang lunas'}
+                                  title={transaction.receivablePaid ? 'Belum lunas' : 'Tandai lunas'}
+                                >
+                                  <CheckCircle2 size={14} />
+                                </button>
+                              )}
                               <button type="button" onClick={() => openEditTransactionModal(transaction)} aria-label={`Edit ${transaction.title}`} title="Edit">
                                 <Pencil size={14} />
                               </button>
@@ -822,18 +937,52 @@ function App() {
                   <strong>
                     {Math.min(
                       filteredTransactions.length,
-                      activeNav === 'Dashboard' ? 6 : filteredTransactions.length
                     )}
                   </strong>{' '}
                   dari <strong>{filteredTransactions.length}</strong> transaksi
                 </span>
                 {activeNav !== 'Laporan' && (
-                  <button onClick={exportTransactions}>
-                    Unduh CSV <Download size={14} />
+                  <button onClick={downloadPdf}>
+                    Unduh PDF <Printer size={14} />
                   </button>
                 )}
               </div>
             </section>
+          )}
+
+          {activeNav === 'Buku Keuangan' && (
+            <div className="ledger-grid">
+              {availableLedgers.length === 0 ? (
+                <section className="ledger-empty-state">
+                  <BookOpen size={28} />
+                  <h2>Buat buku keuangan pertama</h2>
+                  <p>Buku membantu memisahkan pencatatan per usaha, proyek, atau kebutuhan tertentu.</p>
+                  <button className="primary-button" onClick={() => setIsLedgerModalOpen(true)}>
+                    <Plus size={16} /> Buat buku keuangan
+                  </button>
+                </section>
+              ) : (
+                availableLedgers.map((ledger) => (
+                  <button
+                    key={ledger}
+                    type="button"
+                    className="ledger-card"
+                    onClick={() => {
+                      setActiveLedger(ledger)
+                      setActiveNav('Laporan')
+                    }}
+                  >
+                    <span className="ledger-card-icon"><BookOpen size={20} /></span>
+                    <span>
+                      <strong>{ledger}</strong>
+                      <small>
+                        {transactions.filter((transaction) => normalizeLedger(transaction) === ledger).length} pencatatan
+                      </small>
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
           )}
 
           {/* Pengaturan penyimpanan lokal */}
@@ -863,10 +1012,6 @@ function App() {
                   </div>
                 </div>
                 <div className="settings-details">
-                  <div className="settings-field-box">
-                    <span>Nama Workspace</span>
-                    <strong>Karsa Studio</strong>
-                  </div>
                   <div className="settings-field-box">
                     <span>Mata Uang</span>
                     <strong>IDR — Rupiah Indonesia (Rp)</strong>
@@ -912,6 +1057,10 @@ function App() {
         </header>
         <div className="print-summary">
           <div>
+            <span>Total saldo keseluruhan</span>
+            <strong>{formatCurrency(totalBalance)}</strong>
+          </div>
+          <div>
             <span>Total pemasukan</span>
             <strong>{formatCurrency(reportIncomeTotal)}</strong>
           </div>
@@ -923,6 +1072,10 @@ function App() {
             <span>Arus kas bersih</span>
             <strong>{formatCurrency(reportIncomeTotal - reportExpenseTotal)}</strong>
           </div>
+          <div>
+            <span>Utang belum lunas</span>
+            <strong>{formatCurrency(reportReceivableTotal)}</strong>
+          </div>
         </div>
         <table className="print-table">
           <thead>
@@ -930,8 +1083,10 @@ function App() {
               <th>Tanggal</th>
               <th>Transaksi</th>
               <th>Kategori</th>
+              <th>Buku</th>
               <th>Akun</th>
               <th>Jenis</th>
+              <th>Status</th>
               <th>Jumlah</th>
             </tr>
           </thead>
@@ -941,10 +1096,12 @@ function App() {
                 <td>{formatDate(tx.date)}</td>
                 <td>{tx.title}</td>
                 <td>{tx.category}</td>
+                <td>{normalizeLedger(tx)}</td>
                 <td>{tx.account}</td>
-                <td>{tx.type === 'income' ? 'Pemasukan' : 'Pengeluaran'}</td>
+                <td>{tx.type === 'income' ? 'Pemasukan' : tx.type === 'expense' ? 'Pengeluaran' : 'Utang'}</td>
+                <td>{tx.type === 'receivable' ? (tx.receivablePaid ? 'Lunas' : 'Belum lunas') : '-'}</td>
                 <td className="print-amount">
-                  {tx.type === 'income' ? '+' : '−'} {formatCurrency(tx.amount)}
+                  {tx.type === 'income' ? '+' : tx.type === 'expense' ? '−' : ''} {formatCurrency(tx.amount)}
                 </td>
               </tr>
             ))}
@@ -954,6 +1111,54 @@ function App() {
           CatatRapi · {filteredTransactions.length} transaksi
         </footer>
       </section>
+
+      {(isLedgerModalOpen || !hasCompletedLedgerSetup) && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && hasCompletedLedgerSetup) setIsLedgerModalOpen(false)
+          }}
+        >
+          <section className="transaction-modal ledger-modal" role="dialog" aria-modal="true" aria-labelledby="ledger-modal-title">
+            <div className="modal-heading">
+              <div>
+                <p className="eyebrow">LANGKAH PERTAMA</p>
+                <h2 id="ledger-modal-title">Buat buku keuangan</h2>
+              </div>
+              {hasCompletedLedgerSetup && (
+                <button className="icon-button" onClick={() => setIsLedgerModalOpen(false)} aria-label="Tutup dialog">
+                  <X size={18} />
+                </button>
+              )}
+            </div>
+            <p className="ledger-modal-description">
+              Sebelum mencatat keuangan, buat buku untuk memisahkan pencatatan usaha, proyek, atau kebutuhanmu.
+            </p>
+            <form onSubmit={createLedger}>
+              <label className="form-field">
+                Nama buku keuangan
+                <input
+                  value={newLedgerName}
+                  onChange={(event) => setNewLedgerName(event.target.value)}
+                  placeholder="Contoh: Usaha Toko, Proyek A"
+                  autoFocus
+                  required
+                />
+              </label>
+              <div className="modal-actions">
+                {hasCompletedLedgerSetup && (
+                  <button type="button" className="secondary-button" onClick={() => setIsLedgerModalOpen(false)}>
+                    Batal
+                  </button>
+                )}
+                <button type="submit" className="primary-button">
+                  <BookOpen size={16} /> Buat buku
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
 
       {/* Add Transaction Modal */}
       {isModalOpen && (
@@ -1004,7 +1209,73 @@ function App() {
                 >
                   <ArrowDownLeft size={16} /> Pemasukan
                 </button>
+                <button
+                  type="button"
+                  className={transactionType === 'receivable' ? 'selected-receivable' : ''}
+                  onClick={() => setTransactionType('receivable')}
+                >
+                  <FileText size={16} /> Piutang
+                </button>
               </div>
+
+              {transactionType === 'receivable' && (
+                <div className="receivable-mode-switch" role="group" aria-label="Opsi piutang">
+                  <button
+                    type="button"
+                    className={receivableMode === 'credit' ? 'active' : ''}
+                    onClick={() => setReceivableMode('credit')}
+                  >
+                    Kredit / Piutang baru
+                  </button>
+                  <button
+                    type="button"
+                    className={receivableMode === 'payment' ? 'active' : ''}
+                    onClick={() => setReceivableMode('payment')}
+                  >
+                    Pelunasan piutang
+                  </button>
+                </div>
+              )}
+
+              {transactionType === 'receivable' && receivableMode === 'payment' ? (
+                <>
+                  <label className="form-field">
+                    Piutang yang dilunasi
+                    <select name="receivableId" required defaultValue="">
+                      <option value="" disabled>Pilih piutang</option>
+                      {transactions
+                        .filter((transaction) => transaction.type === 'receivable' && !transaction.receivablePaid)
+                        .map((transaction) => (
+                          <option key={transaction.id} value={transaction.id}>
+                            {transaction.title} — Sisa {formatCurrency(
+                              transaction.amount - (Number(transaction.receivablePaidAmount) || 0)
+                            )}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <div className="form-row">
+                    <label className="form-field">
+                      Jumlah dibayar (Rp)
+                      <input
+                        name="amount"
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="0"
+                        onChange={(event) => {
+                          event.currentTarget.value = formatAmountInput(event.currentTarget.value)
+                        }}
+                        required
+                      />
+                    </label>
+                    <label className="form-field">
+                      Tanggal pelunasan
+                      <input name="date" type="date" defaultValue={defaultTodayDate} required />
+                    </label>
+                  </div>
+                </>
+              ) : (
+                <>
 
               <label className="form-field">
                 Nama transaksi
@@ -1022,11 +1293,13 @@ function App() {
                   Jumlah (Rp)
                   <input
                     name="amount"
-                    type="number"
-                    min="1"
-                    step="1"
+                    type="text"
+                    inputMode="numeric"
                     placeholder="0"
-                    defaultValue={editingTransaction?.amount ?? ''}
+                    defaultValue={editingTransaction?.amount ? formatAmountInput(String(editingTransaction.amount)) : ''}
+                    onChange={(event) => {
+                      event.currentTarget.value = formatAmountInput(event.currentTarget.value)
+                    }}
                     required
                   />
                 </label>
@@ -1042,26 +1315,81 @@ function App() {
               </div>
 
               <div className="form-row">
-                <label className="form-field">
-                  Kategori
-                  <select name="category" defaultValue={editingTransaction?.category ?? 'Operasional'}>
-                    <option>Operasional</option>
-                    <option>Proyek</option>
-                    <option>Tools</option>
-                    <option>Perjalanan</option>
-                    <option>Gaji</option>
-                    <option>Lainnya</option>
-                  </select>
-                </label>
+                {transactionType !== 'receivable' && (
+                  <label className="form-field">
+                    Kategori
+                    <select
+                      key={`${transactionType}-${editingTransaction?.id ?? 'new'}`}
+                      name="category"
+                      defaultValue={
+                        editingTransaction && editingTransaction.category !== '-'
+                          ? editingTransaction.category
+                          : transactionType === 'income'
+                            ? 'Pendapatan'
+                            : 'Operasional'
+                      }
+                    >
+                      {transactionType === 'income' ? (
+                        <>
+                          <option>Pendapatan</option>
+                          <option>Penjualan</option>
+                          <option>Jasa</option>
+                          <option>Lainnya</option>
+                        </>
+                      ) : (
+                        <>
+                          <option>Operasional</option>
+                          <option>Proyek</option>
+                          <option>Tools</option>
+                          <option>Perjalanan</option>
+                          <option>Gaji</option>
+                          <option>Lainnya</option>
+                        </>
+                      )}
+                    </select>
+                  </label>
+                )}
                 <label className="form-field">
                   Akun
-                  <select name="account" defaultValue={editingTransaction?.account ?? 'BCA Operasional'}>
+                  <select name="account" defaultValue={editingTransaction?.account ?? 'Tunai'}>
                     <option>BCA Operasional</option>
                     <option>Kartu bisnis</option>
                     <option>Tunai</option>
                   </select>
                 </label>
               </div>
+
+              <div className="form-row">
+                <label className="form-field">
+                  Buku pencatatan
+                  <select
+                    name="ledger"
+                    defaultValue={
+                      editingTransaction && normalizeLedger(editingTransaction)
+                        ? normalizeLedger(editingTransaction)
+                        : activeLedger !== 'Semua Buku'
+                          ? activeLedger
+                          : ledgers[0] || ''
+                    }
+                    required
+                  >
+                    {ledgers.map((ledger) => <option key={ledger} value={ledger}>{ledger}</option>)}
+                  </select>
+                </label>
+                {transactionType === 'receivable' && (
+                  <label className="form-field">
+                    Jatuh tempo
+                    <input
+                      name="dueDate"
+                      type="date"
+                      defaultValue={editingTransaction?.dueDate ?? ''}
+                    />
+                  </label>
+                )}
+              </div>
+
+                </>
+              )}
 
               <div className="modal-actions">
                 <button

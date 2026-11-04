@@ -29,9 +29,13 @@ export type TransactionRecord = {
   title: string
   category: string
   date: string
-  type: 'income' | 'expense'
+  type: 'income' | 'expense' | 'receivable'
   amount: number
   account: string
+  ledger?: string
+  dueDate?: string
+  receivablePaid?: boolean
+  receivablePaidAmount?: number
 }
 
 export type SyncStatus = 'local' | 'connecting' | 'synced' | 'error'
