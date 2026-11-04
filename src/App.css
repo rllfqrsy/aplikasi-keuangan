@@ -376,7 +376,10 @@
 .ledger-filter span { font-weight: 700; }
 .ledger-filter select { height: 30px; max-width: 130px; padding: 0 7px; border: 1px solid #e7ebe6; border-radius: 5px; color: #526159; background: #fff; font-size: 10px; }
 .ledger-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 20px; }
-.ledger-card { display: flex; min-height: 105px; align-items: center; gap: 13px; padding: 18px; border: 1px solid #e6ebe5; border-radius: 8px; color: inherit; background: #fff; text-align: left; cursor: pointer; }
+.ledger-card { position: relative; display: flex; min-height: 105px; align-items: center; border: 1px solid #e6ebe5; border-radius: 8px; color: inherit; background: #fff; }
+.ledger-card-main { display: flex; min-width: 0; min-height: 105px; flex: 1; align-items: center; gap: 13px; padding: 18px 46px 18px 18px; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.ledger-card-edit { position: absolute; top: 10px; right: 10px; display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid #e1e7e1; border-radius: 6px; color: #617066; background: #fff; cursor: pointer; }
+.ledger-card-edit:hover { border-color: #b9cdbc; color: #1d6649; background: #f3f7f3; }
 .ledger-card:hover { border-color: #bdd0c1; box-shadow: 0 4px 14px rgba(29, 102, 73, .07); }
 .ledger-card-icon { display: grid; width: 42px; height: 42px; flex: 0 0 auto; place-items: center; border-radius: 8px; color: #1d6649; background: #edf5ef; }
 .ledger-card strong, .ledger-card small { display: block; }
@@ -701,7 +704,8 @@ td { height: 54px; padding: 0 13px; border-top: 1px solid #f0f2ef; color: #75817
   .page-heading h1 { font-size: 23px; }.page-subtitle { max-width: 230px; font-size: 11px; line-height: 1.45; }
   .page-heading > .primary-button { min-width: 38px; width: 38px; min-height: 38px; padding: 0; overflow: hidden; font-size: 0; gap: 0; }.page-heading > .primary-button svg { flex: 0 0 auto; }
   .ledger-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
-  .ledger-card { min-width: 0; min-height: 94px; gap: 10px; padding: 14px 12px; }
+  .ledger-card, .ledger-card-main { min-width: 0; min-height: 94px; }
+  .ledger-card-main { gap: 10px; padding: 14px 42px 14px 12px; }
   .ledger-card > span:last-child { min-width: 0; }
   .ledger-card strong { overflow-wrap: anywhere; }
   .ledger-card-icon { width: 38px; height: 38px; }
@@ -726,7 +730,8 @@ td { height: 54px; padding: 0 13px; border-top: 1px solid #f0f2ef; color: #75817
   .summary-amount { font-size: 15px; }
   .summary-foot { font-size: 7px; }
   .ledger-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-  .ledger-card { min-height: 82px; padding: 12px; }
+  .ledger-card, .ledger-card-main { min-height: 82px; }
+  .ledger-card-main { padding: 12px 40px 12px 12px; }
   .ledger-card-icon { width: 36px; height: 36px; }
   .ledger-card strong { font-size: 12px; }
   .form-row { flex-direction: column; gap: 0; }

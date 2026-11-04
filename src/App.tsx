@@ -93,6 +93,7 @@ function App() {
   })
   const [newLedgerName, setNewLedgerName] = useState('')
   const [isLedgerModalOpen, setIsLedgerModalOpen] = useState(false)
+  const [editingLedgerName, setEditingLedgerName] = useState<string | null>(null)
   const syncStatus: SyncStatus = 'local'
 
   // Auth State
@@ -321,12 +322,38 @@ function App() {
     setIsModalOpen(true)
   }
 
+  const openCreateLedgerModal = () => {
+    setEditingLedgerName(null)
+    setNewLedgerName('')
+    setIsLedgerModalOpen(true)
+  }
+
   const createLedger = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const ledgerName = newLedgerName.trim()
     if (!ledgerName) return
     if (ledgerName.toLowerCase() === 'umum') {
       alert('Buku Umum tidak tersedia. Silakan gunakan nama buku lain.')
+      return
+    }
+    if (editingLedgerName) {
+      if (
+        ledgerName.toLowerCase() !== editingLedgerName.toLowerCase()
+        && ledgers.some((ledger) => ledger.toLowerCase() === ledgerName.toLowerCase())
+      ) {
+        alert('Nama buku keuangan sudah digunakan.')
+        return
+      }
+      setLedgers((current) => current.map((ledger) => ledger === editingLedgerName ? ledgerName : ledger))
+      setTransactions((current) => current.map((transaction) =>
+        normalizeLedger(transaction) === editingLedgerName
+          ? { ...transaction, ledger: ledgerName }
+          : transaction
+      ))
+      if (activeLedger === editingLedgerName) setActiveLedger(ledgerName)
+      setEditingLedgerName(null)
+      setNewLedgerName('')
+      setIsLedgerModalOpen(false)
       return
     }
     if (ledgers.some((ledger) => ledger.toLowerCase() === ledgerName.toLowerCase())) {
@@ -337,6 +364,18 @@ function App() {
     setActiveLedger(ledgerName)
     setHasCompletedLedgerSetup(true)
     localStorage.setItem('catat-rapi-ledger-setup', 'true')
+    setNewLedgerName('')
+    setIsLedgerModalOpen(false)
+  }
+
+  const openEditLedgerModal = (ledger: string) => {
+    setEditingLedgerName(ledger)
+    setNewLedgerName(ledger)
+    setIsLedgerModalOpen(true)
+  }
+
+  const closeLedgerModal = () => {
+    setEditingLedgerName(null)
     setNewLedgerName('')
     setIsLedgerModalOpen(false)
   }
@@ -547,7 +586,7 @@ function App() {
               </p>
             </div>
             {activeNav === 'Buku Keuangan' ? (
-              <button className="primary-button" onClick={() => setIsLedgerModalOpen(true)}>
+              <button className="primary-button" onClick={openCreateLedgerModal}>
                 <Plus size={17} strokeWidth={2.4} /> Buku baru
               </button>
             ) : (
@@ -957,29 +996,39 @@ function App() {
                   <BookOpen size={28} />
                   <h2>Buat buku keuangan pertama</h2>
                   <p>Buku membantu memisahkan pencatatan per usaha, proyek, atau kebutuhan tertentu.</p>
-                  <button className="primary-button" onClick={() => setIsLedgerModalOpen(true)}>
+                  <button className="primary-button" onClick={openCreateLedgerModal}>
                     <Plus size={16} /> Buat buku keuangan
                   </button>
                 </section>
               ) : (
                 availableLedgers.map((ledger) => (
-                  <button
-                    key={ledger}
-                    type="button"
-                    className="ledger-card"
-                    onClick={() => {
-                      setActiveLedger(ledger)
-                      setActiveNav('Laporan')
-                    }}
-                  >
-                    <span className="ledger-card-icon"><BookOpen size={20} /></span>
-                    <span>
-                      <strong>{ledger}</strong>
-                      <small>
-                        {transactions.filter((transaction) => normalizeLedger(transaction) === ledger).length} pencatatan
-                      </small>
-                    </span>
-                  </button>
+                  <div key={ledger} className="ledger-card">
+                    <button
+                      type="button"
+                      className="ledger-card-main"
+                      onClick={() => {
+                        setActiveLedger(ledger)
+                        setActiveNav('Laporan')
+                      }}
+                    >
+                      <span className="ledger-card-icon"><BookOpen size={20} /></span>
+                      <span>
+                        <strong>{ledger}</strong>
+                        <small>
+                          {transactions.filter((transaction) => normalizeLedger(transaction) === ledger).length} pencatatan
+                        </small>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="ledger-card-edit"
+                      onClick={() => openEditLedgerModal(ledger)}
+                      aria-label={`Edit nama buku ${ledger}`}
+                      title="Edit nama buku"
+                    >
+                      <Pencil size={15} />
+                    </button>
+                  </div>
                 ))
               )}
             </div>
@@ -1116,23 +1165,25 @@ function App() {
         <div
           className="modal-backdrop"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget && hasCompletedLedgerSetup) setIsLedgerModalOpen(false)
+            if (event.target === event.currentTarget && hasCompletedLedgerSetup) closeLedgerModal()
           }}
         >
           <section className="transaction-modal ledger-modal" role="dialog" aria-modal="true" aria-labelledby="ledger-modal-title">
             <div className="modal-heading">
               <div>
-                <p className="eyebrow">LANGKAH PERTAMA</p>
-                <h2 id="ledger-modal-title">Buat buku keuangan</h2>
+                <p className="eyebrow">{editingLedgerName ? 'EDIT BUKU' : 'LANGKAH PERTAMA'}</p>
+                <h2 id="ledger-modal-title">{editingLedgerName ? 'Edit nama buku keuangan' : 'Buat buku keuangan'}</h2>
               </div>
               {hasCompletedLedgerSetup && (
-                <button className="icon-button" onClick={() => setIsLedgerModalOpen(false)} aria-label="Tutup dialog">
+                <button className="icon-button" onClick={closeLedgerModal} aria-label="Tutup dialog">
                   <X size={18} />
                 </button>
               )}
             </div>
             <p className="ledger-modal-description">
-              Sebelum mencatat keuangan, buat buku untuk memisahkan pencatatan usaha, proyek, atau kebutuhanmu.
+              {editingLedgerName
+                ? 'Nama baru akan diperbarui pada buku dan seluruh transaksi yang menggunakannya.'
+                : 'Sebelum mencatat keuangan, buat buku untuk memisahkan pencatatan usaha, proyek, atau kebutuhanmu.'}
             </p>
             <form onSubmit={createLedger}>
               <label className="form-field">
@@ -1147,12 +1198,12 @@ function App() {
               </label>
               <div className="modal-actions">
                 {hasCompletedLedgerSetup && (
-                  <button type="button" className="secondary-button" onClick={() => setIsLedgerModalOpen(false)}>
+                  <button type="button" className="secondary-button" onClick={closeLedgerModal}>
                     Batal
                   </button>
                 )}
                 <button type="submit" className="primary-button">
-                  <BookOpen size={16} /> Buat buku
+                  <BookOpen size={16} /> {editingLedgerName ? 'Simpan perubahan' : 'Buat buku'}
                 </button>
               </div>
             </form>
