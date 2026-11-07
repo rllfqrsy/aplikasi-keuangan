@@ -499,7 +499,7 @@ function App() {
 
           <div className="topbar-actions">
             {/* Period selector dropdown */}
-            <div style={{ position: 'relative' }} ref={periodMenuRef}>
+            <div style={{ position: 'relative', zIndex: isPeriodMenuOpen ? 100 : 'auto' }} ref={periodMenuRef}>
               <button
                 type="button"
                 className="select-button"
