@@ -304,22 +304,50 @@
 
 /* Period Menu Popover & Scrollable List */
 .period-menu-popover {
+  position: absolute;
   top: calc(100% + 8px);
   right: 0;
   left: auto;
-  width: 210px;
+  width: 220px;
   max-width: calc(100vw - 28px);
-  max-height: min(290px, 60vh);
-  display: flex;
-  flex-direction: column;
+  max-height: 260px;
+  overflow-y: auto !important;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch !important;
+  touch-action: pan-y !important;
+  overscroll-behavior: contain;
   padding: 6px;
-  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid #e2e8e0;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(18, 41, 28, 0.12), 0 2px 6px rgba(0, 0, 0, 0.04);
+  z-index: 1000;
+  scrollbar-width: thin;
+  scrollbar-color: #9abfa4 #f0f4f1;
+}
+.period-menu-popover::-webkit-scrollbar {
+  width: 6px;
+  display: block;
+}
+.period-menu-popover::-webkit-scrollbar-track {
+  background: #f0f4f1;
+  border-radius: 4px;
+}
+.period-menu-popover::-webkit-scrollbar-thumb {
+  background: #9abfa4;
+  border-radius: 4px;
+}
+.period-menu-popover::-webkit-scrollbar-thumb:hover {
+  background: #7ca888;
 }
 .period-menu-header {
+  position: sticky;
+  top: -6px;
+  background: #ffffff;
   padding: 6px 8px 8px;
   border-bottom: 1px solid #f0f3ef;
   margin-bottom: 4px;
-  flex-shrink: 0;
+  z-index: 5;
 }
 .period-menu-title {
   font-size: 10px;
@@ -331,25 +359,9 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  flex: 1 1 auto;
-  max-height: min(240px, 50vh);
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+}
+.period-menu-list .user-menu-btn {
   touch-action: pan-y;
-  overscroll-behavior: contain;
-  padding-right: 2px;
-  scrollbar-width: thin;
-  scrollbar-color: #c4d4c8 transparent;
-}
-.period-menu-list::-webkit-scrollbar {
-  width: 4px;
-}
-.period-menu-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-.period-menu-list::-webkit-scrollbar-thumb {
-  background: #c4d4c8;
-  border-radius: 4px;
 }
 .page-content { max-width: 1380px; margin: 0 auto; padding: 34px 40px 20px; }
 .page-heading { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 25px; }
@@ -756,10 +768,12 @@ td { height: 54px; padding: 0 13px; border-top: 1px solid #f0f2ef; color: #75817
   .period-menu-popover {
     right: 0;
     left: auto;
-    max-height: min(260px, 50vh);
-  }
-  .period-menu-list {
-    max-height: min(200px, 40vh);
+    width: 215px;
+    max-width: calc(100vw - 24px);
+    max-height: min(250px, 50vh);
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    touch-action: pan-y !important;
   }
   .avatar-mini { width: 27px; height: 27px; }
   .page-content { padding: 24px 16px 17px; }
@@ -787,7 +801,7 @@ td { height: 54px; padding: 0 13px; border-top: 1px solid #f0f2ef; color: #75817
   .topbar { padding-right: 12px; padding-left: 12px; }
   .breadcrumbs { gap: 7px; font-size: 10px; }
   .period-label { font-size: 9px; }
-  .period-menu-popover { width: 195px; max-width: calc(100vw - 20px); }
+  .period-menu-popover { width: 200px; max-width: calc(100vw - 16px); max-height: min(240px, 48vh); }
   .page-content { padding-right: 12px; padding-left: 12px; }
   .summary-grid { gap: 7px; }
   .summary-card { padding-right: 9px; padding-left: 9px; }

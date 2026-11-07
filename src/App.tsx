@@ -136,10 +136,20 @@ function App() {
   )
 
 
-  // Calculate available months dynamically from transactions
+  // Calculate available months dynamically (all 12 months of current year, previous year, and any transaction months)
   const availableMonths = useMemo(() => {
     const monthSet = new Set<string>()
-    monthSet.add(defaultMonthPrefix)
+    const currentYear = Number(defaultMonthPrefix.slice(0, 4))
+
+    // 12 months of current year
+    for (let m = 1; m <= 12; m++) {
+      monthSet.add(`${currentYear}-${String(m).padStart(2, '0')}`)
+    }
+    // 12 months of previous year
+    for (let m = 1; m <= 12; m++) {
+      monthSet.add(`${currentYear - 1}-${String(m).padStart(2, '0')}`)
+    }
+    // Any extra transaction months
     transactions.forEach((tx) => {
       if (tx.date && tx.date.length >= 7) {
         monthSet.add(tx.date.slice(0, 7))
