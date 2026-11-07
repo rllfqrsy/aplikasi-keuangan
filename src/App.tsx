@@ -34,7 +34,6 @@ import {
   MONTH_NAMES,
   normalizeLedger,
   parseAmount,
-  remainingReceivable,
   sumTransactions,
 } from './financeUtils'
 import './App.css'
@@ -149,13 +148,6 @@ function App() {
     return Array.from(monthSet).sort().reverse()
   }, [transactions])
 
-  // All-time totals (used for total cash balance)
-  const allTimeIncome = useMemo(() => sumTransactions(transactions, 'income'), [transactions])
-  const allTimeExpense = useMemo(() => sumTransactions(transactions, 'expense'), [transactions])
-
-  // Total dynamic balance
-  const totalBalance = allTimeIncome - allTimeExpense
-
   // Period-specific transactions (for current summary view)
   const periodTransactions = useMemo(() => {
     if (selectedPeriod === 'all') return transactions
@@ -166,13 +158,6 @@ function App() {
   const periodExpenseTotal = useMemo(() => sumTransactions(periodTransactions, 'expense'), [periodTransactions])
 
   const netCashflow = periodIncomeTotal - periodExpenseTotal
-
-  const outstandingReceivables = useMemo(
-    () => periodTransactions
-      .filter((tx) => tx.type === 'receivable' && !tx.receivablePaid)
-      .reduce((sum, tx) => sum + remainingReceivable(tx), 0),
-    [periodTransactions]
-  )
 
   // Filtered transactions for table search & tab filter
   const filteredTransactions = useMemo(() => {
@@ -194,14 +179,6 @@ function App() {
 
   const reportIncomeTotal = useMemo(() => sumTransactions(filteredTransactions, 'income'), [filteredTransactions])
   const reportExpenseTotal = useMemo(() => sumTransactions(filteredTransactions, 'expense'), [filteredTransactions])
-
-  const reportReceivableTotal = useMemo(
-    () =>
-      filteredTransactions
-        .filter((tx) => tx.type === 'receivable' && !tx.receivablePaid)
-        .reduce((total, tx) => total + remainingReceivable(tx), 0),
-    [filteredTransactions]
-  )
 
   // Dynamic 6-month chart
   const chartMonths = useMemo(() => {
@@ -418,9 +395,8 @@ function App() {
 
     pdf.setFont('helvetica', 'bold')
     pdf.text(`Pemasukan: ${formatCurrency(reportIncomeTotal)}`, 14, y)
-    pdf.text(`Pengeluaran: ${formatCurrency(reportExpenseTotal)}`, 75, y)
-    pdf.text(`Utang: ${formatCurrency(reportReceivableTotal)}`, 136, y)
-    pdf.text(`Bersih: ${formatCurrency(reportIncomeTotal - reportExpenseTotal)}`, 190, y)
+    pdf.text(`Pengeluaran: ${formatCurrency(reportExpenseTotal)}`, 85, y)
+    pdf.text(`Bersih: ${formatCurrency(reportIncomeTotal - reportExpenseTotal)}`, 160, y)
     y += 8
 
     pdf.setFontSize(9)
@@ -527,39 +503,40 @@ function App() {
 
               {isPeriodMenuOpen && (
                 <div
-                  className="user-menu-popover"
-                  style={{ width: '200px', left: 0, right: 'auto' }}
+                  className="user-menu-popover period-menu-popover"
                 >
-                  <div className="user-menu-header" style={{ padding: '6px 8px' }}>
-                    <span style={{ fontSize: '10px', color: '#828e85', fontWeight: 700 }}>
+                  <div className="user-menu-header period-menu-header">
+                    <span className="period-menu-title">
                       PILIH PERIODE
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    className={`user-menu-btn ${selectedPeriod === 'all' ? 'is-active' : ''}`}
-                    onClick={() => {
-                      setSelectedPeriod('all')
-                      setIsPeriodMenuOpen(false)
-                    }}
-                    style={{ fontWeight: selectedPeriod === 'all' ? 700 : 500 }}
-                  >
-                    Semua Periode ({transactions.length})
-                  </button>
-                  {availableMonths.map((m) => (
+                  <div className="period-menu-list">
                     <button
-                      key={m}
                       type="button"
-                      className="user-menu-btn"
+                      className={`user-menu-btn ${selectedPeriod === 'all' ? 'is-active' : ''}`}
                       onClick={() => {
-                        setSelectedPeriod(m)
+                        setSelectedPeriod('all')
                         setIsPeriodMenuOpen(false)
                       }}
-                      style={{ fontWeight: selectedPeriod === m ? 700 : 500 }}
+                      style={{ fontWeight: selectedPeriod === 'all' ? 700 : 500 }}
                     >
-                      {formatPeriodLabel(m)}
+                      Semua Periode ({transactions.length})
                     </button>
-                  ))}
+                    {availableMonths.map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        className={`user-menu-btn ${selectedPeriod === m ? 'is-active' : ''}`}
+                        onClick={() => {
+                          setSelectedPeriod(m)
+                          setIsPeriodMenuOpen(false)
+                        }}
+                        style={{ fontWeight: selectedPeriod === m ? 700 : 500 }}
+                      >
+                        {formatPeriodLabel(m)}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -599,25 +576,6 @@ function App() {
           {/* Summary Cards */}
           {activeNav !== 'Buku Keuangan' && activeNav !== 'Pengaturan' && (
           <section className="summary-grid" aria-label="Ringkasan keuangan">
-            <article className="summary-card balance-card">
-              <div className="summary-top">
-                <span className="summary-label">Total saldo keseluruhan</span>
-                <span className="summary-icon balance-icon">
-                  <Wallet size={18} />
-                </span>
-              </div>
-              <strong className="summary-amount">{formatCurrency(totalBalance)}</strong>
-              <div className="summary-foot">
-                <span className="positive-change">
-                  <ArrowUpRight size={14} /> Total Akumulasi
-                </span>
-                <span>dari {transactions.length} transaksi</span>
-              </div>
-              <div className="balance-decoration" aria-hidden="true">
-                <i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i />
-              </div>
-            </article>
-
             <article className="summary-card">
               <div className="summary-top">
                 <span className="summary-label">
@@ -663,24 +621,6 @@ function App() {
               </div>
               <div className="mini-bars expense-bars" aria-hidden="true">
                 <i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i />
-              </div>
-            </article>
-
-            <article className="summary-card receivable-card">
-              <div className="summary-top">
-                <span className="summary-label">Utang belum lunas</span>
-                <span className="summary-icon receivable-icon">
-                  <FileText size={18} />
-                </span>
-              </div>
-              <strong className="summary-amount">
-                {formatCurrency(activeNav === 'Laporan' ? reportReceivableTotal : outstandingReceivables)}
-              </strong>
-              <div className="summary-foot">
-                <span className="neutral-change">
-                  {periodTransactions.filter((tx) => tx.type === 'receivable' && !tx.receivablePaid).length} utang
-                </span>
-                <span>belum masuk kas</span>
               </div>
             </article>
 
@@ -1106,10 +1046,6 @@ function App() {
         </header>
         <div className="print-summary">
           <div>
-            <span>Total saldo keseluruhan</span>
-            <strong>{formatCurrency(totalBalance)}</strong>
-          </div>
-          <div>
             <span>Total pemasukan</span>
             <strong>{formatCurrency(reportIncomeTotal)}</strong>
           </div>
@@ -1120,10 +1056,6 @@ function App() {
           <div>
             <span>Arus kas bersih</span>
             <strong>{formatCurrency(reportIncomeTotal - reportExpenseTotal)}</strong>
-          </div>
-          <div>
-            <span>Utang belum lunas</span>
-            <strong>{formatCurrency(reportReceivableTotal)}</strong>
           </div>
         </div>
         <table className="print-table">
